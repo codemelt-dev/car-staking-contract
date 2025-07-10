@@ -34,6 +34,7 @@ describe("spl-staking-locked", () => {
   let user1: User;
   let user2: User;
   let user3: User;
+  let user4: User;
   let admin2: User;
 
   // Token owner
@@ -53,6 +54,7 @@ describe("spl-staking-locked", () => {
   const USER1_STAKE_AMOUNT = 100;
   const USER2_STAKE_AMOUNT = 200;
   const USER3_STAKE_AMOUNT = 100;
+  const USER4_STAKE_AMOUNT = 1000;
 
   let rewardStartedAt;
   let user2FirstRequestRewards = 0;
@@ -99,6 +101,13 @@ describe("spl-staking-locked", () => {
       tokenMint,
       tokenOwner,
       USER3_STAKE_AMOUNT * 2
+    );
+    user4 = await newUserWithSOLAndToken(
+      provider,
+      2,
+      tokenMint,
+      tokenOwner,
+      USER4_STAKE_AMOUNT * 2
     );
     admin2 = await newUserWithSOLAndToken(
       provider,
@@ -398,6 +407,51 @@ describe("spl-staking-locked", () => {
     ).to.eq(0);
   });
 
+  it("+ User4 stakes ${USER4_STAKE_AMOUNT} tokens [total: ${USER4_STAKE_AMOUNT} | staked: ${USER4_STAKE_AMOUNT}]", async () => {
+    const tx = await program.methods
+      .stake(new anchor.BN(USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL))
+      .accounts({
+        user: user4.user.publicKey,
+        tokenMint: tokenMint,
+      })
+      .signers([user4.user])
+      .rpc();
+
+    const txinfo = await waitForTransaction(provider.connection, tx);
+    const events = [...eventParser.parseLogs(txinfo.meta.logMessages)];
+    expect(events.length).to.eq(1);
+    expect(events[0].name).to.eq("staked");
+    expect(events[0].data.user).to.deep.eq(user4.user.publicKey);
+    expect(events[0].data.amount.toNumber()).to.eq(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(events[0].data.totalUserStaked.toNumber()).to.eq(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+
+    const userInfoPDA = getUserInfoPDA(program.programId, user4.user.publicKey);
+    const userInfo = await program.account.userInfo.fetch(userInfoPDA);
+    expect(userInfo.user.toString()).to.equal(user4.user.publicKey.toString());
+    expect(userInfo.stakeAmount.toNumber()).to.equal(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(userInfo.stakedAt).to.equal(txinfo.blockTime);
+    expect(userInfo.capturedReward.toNumber()).to.equal(0);
+    expect(userInfo.withdrawalRequestTime).to.equal(0);
+    expect(userInfo.withdrawalRequestAmount.toNumber()).to.equal(0);
+    expect(userInfo.withdrawalRequestRewardAmount.toNumber()).to.equal(0);
+
+    const statsPDA = getStatsPDA(program.programId);
+    const stats = await program.account.stats.fetch(statsPDA);
+    expect(stats.totalStaked.toNumber()).to.equal(
+      (USER1_STAKE_AMOUNT * 2 + USER2_STAKE_AMOUNT + USER4_STAKE_AMOUNT) *
+        LAMPORTS_PER_SOL
+    );
+    expect(stats.totalRewardPromised.toNumber()).to.equal(0);
+    expect(stats.totalRewardProvided.toNumber()).to.equal(0);
+    expect(stats.rewardPerTokenStoredNumerator.toNumber()).to.equal(0);
+  });
+
   it("! Configure reward rate to 8% per year. Still no rewards in the protocol", async () => {
     const expectedRewardRatePerSecondPerTokenNumerator = Math.floor(
       REWARD_RATE_1 / (365 * 24 * 60 * 60)
@@ -631,7 +685,8 @@ describe("spl-staking-locked", () => {
     const statsPDA = getStatsPDA(program.programId);
     const stats = await program.account.stats.fetch(statsPDA);
     expect(stats.totalStaked.toNumber()).to.equal(
-      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL
+      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL +
+        USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
     );
 
     const userInfoTokenAccount = await anchor.utils.token.associatedAddress({
@@ -743,7 +798,9 @@ describe("spl-staking-locked", () => {
 
     const statsPDA = getStatsPDA(program.programId);
     const stats = await program.account.stats.fetch(statsPDA);
-    expect(stats.totalStaked.toNumber()).to.equal(0);
+    expect(stats.totalStaked.toNumber()).to.equal(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
 
     const userInfoPDA = getUserInfoPDA(program.programId, user2.user.publicKey);
     const userInfo = await program.account.userInfo.fetch(userInfoPDA);
@@ -812,7 +869,8 @@ describe("spl-staking-locked", () => {
     const statsPDA = getStatsPDA(program.programId);
     const stats = await program.account.stats.fetch(statsPDA);
     expect(stats.totalStaked.toNumber()).to.equal(
-      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL
+      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL +
+        USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
     );
 
     const userInfoTokenAccount = await anchor.utils.token.associatedAddress({
@@ -984,6 +1042,118 @@ describe("spl-staking-locked", () => {
         throw err;
       }
     }
+  });
+
+  it("  User4 has some pending rewards", async () => {
+    const expectedReward = await program.methods
+      .viewCurrentRewards()
+      .accounts({
+        user: user4.user.publicKey,
+      })
+      .view();
+    expect(expectedReward.toNumber()).to.be.greaterThan(0);
+  });
+
+  it(" - User4 requests withdrawal [total: ${USER4_STAKE_AMOUNT} | staked: 0]", async () => {
+    const tx = await program.methods
+      .requestWithdrawal()
+      .accounts({
+        user: user4.user.publicKey,
+      })
+      .signers([user4.user])
+      .rpc();
+
+    const txinfo = await waitForTransaction(provider.connection, tx);
+    const events = [...eventParser.parseLogs(txinfo.meta.logMessages)];
+    expect(events.length).to.eq(1);
+    expect(events[0].name).to.eq("withdrawalRequested");
+    expect(events[0].data.user).to.deep.eq(user4.user.publicKey);
+    expect(events[0].data.addedTokenAmount.toNumber()).to.eq(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(events[0].data.totalTokenAmount.toNumber()).to.eq(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(events[0].data.addedRewardAmount.toNumber()).to.be.gt(0);
+    expect(events[0].data.totalRewardAmount.toNumber()).to.be.gt(0);
+    expect(events[0].data.withdrawalRequestTime).to.eq(txinfo.blockTime);
+
+    const userInfoPDA = getUserInfoPDA(program.programId, user4.user.publicKey);
+    const userInfo = await program.account.userInfo.fetch(userInfoPDA);
+    expect(userInfo.stakeAmount.toNumber()).to.equal(0);
+    expect(userInfo.stakedAt).to.equal(0);
+    expect(userInfo.capturedReward.toNumber()).to.equal(0);
+    expect(userInfo.withdrawalRequestTime).to.equal(txinfo.blockTime);
+    expect(userInfo.withdrawalRequestAmount.toNumber()).to.equal(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(userInfo.withdrawalRequestRewardAmount.toNumber()).gt(0);
+
+    const statsPDA = getStatsPDA(program.programId);
+    const stats = await program.account.stats.fetch(statsPDA);
+    expect(stats.totalStaked.toNumber()).to.equal(
+      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+  });
+
+  it(" - User4 withdraws forfeiting rewards [total: 0 | staked: 0]", async () => {
+    const user4InfoPDA = getUserInfoPDA(
+      program.programId,
+      user4.user.publicKey
+    );
+    const user4InfoBefore = await program.account.userInfo.fetch(user4InfoPDA);
+    const forfeited_reward_amount =
+      user4InfoBefore.withdrawalRequestRewardAmount.toNumber();
+
+    expect(forfeited_reward_amount).to.be.greaterThan(0);
+
+    const tx = await program.methods
+      .withdrawAndForfeitRewards()
+      .accounts({
+        user: user4.user.publicKey,
+      })
+      .signers([user4.user])
+      .rpc();
+
+    const txinfo = await waitForTransaction(provider.connection, tx);
+    const events = [...eventParser.parseLogs(txinfo.meta.logMessages)];
+    expect(events.length).to.eq(1);
+    expect(events[0].name).to.eq("withdrawnAndForfeitedRewards");
+    expect(events[0].data.user).to.deep.eq(user4.user.publicKey);
+    expect(events[0].data.tokenAmount.toNumber()).to.eq(
+      USER4_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+    expect(events[0].data.forfeitedRewardAmount.toNumber()).to.eq(
+      forfeited_reward_amount
+    );
+
+    // Verify user info is cleared
+    const userInfo = await program.account.userInfo.fetch(user4InfoPDA);
+    expect(userInfo.stakeAmount.toNumber()).to.equal(0);
+    expect(userInfo.stakedAt).to.equal(0);
+    expect(userInfo.capturedReward.toNumber()).to.equal(0);
+    expect(userInfo.withdrawalRequestTime).to.equal(0);
+    expect(userInfo.withdrawalRequestAmount.toNumber()).to.equal(0);
+    expect(userInfo.withdrawalRequestRewardAmount.toNumber()).to.equal(0);
+
+    // Verify stats updated (total staked should remain the same since user still has staked amount)
+    const statsPDA = getStatsPDA(program.programId);
+    const stats = await program.account.stats.fetch(statsPDA);
+    expect(stats.totalStaked.toNumber()).to.equal(
+      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL
+    );
+
+    // Check token balances - user should have received their withdrawal request tokens
+    // Verify no reward tokens were transferred to user4 (they were forfeited)
+    // Since we're using single token design, user4 should only have received the staked tokens
+    // The rewards were forfeited and remain in the protocol
+    const user4TokenAccountInfo = await getAccount(
+      provider.connection,
+      user4.ata
+    );
+    expect(Number(user4TokenAccountInfo.amount)).to.equal(
+      USER4_STAKE_AMOUNT * 2 * LAMPORTS_PER_SOL // Got back the tokens from withdrawal request
+    );
   });
 
   it("Admin2 provides rewards to the contract", async () => {
@@ -1519,63 +1689,23 @@ describe("spl-staking-locked", () => {
     expect(user3RewardsAfter.toNumber()).to.equal(user3RewardsPrior.toNumber());
   });
 
-  it("- User3 chooses to withdraw without taking the rewards [total: 0 | staked: 0]", async () => {
-    const user3InfoPDA = getUserInfoPDA(
-      program.programId,
-      user3.user.publicKey
-    );
-    const user3InfoBefore = await program.account.userInfo.fetch(user3InfoPDA);
-    const forfeited_reward_amount =
-      user3InfoBefore.withdrawalRequestRewardAmount.toNumber();
-
-    expect(forfeited_reward_amount).to.be.greaterThan(0);
-
-    const tx = await program.methods
-      .withdrawAndForfeitRewards()
-      .accounts({
-        user: user3.user.publicKey,
-      })
-      .signers([user3.user])
-      .rpc();
-
-    const txinfo = await waitForTransaction(provider.connection, tx);
-    const events = [...eventParser.parseLogs(txinfo.meta.logMessages)];
-    expect(events.length).to.eq(1);
-    expect(events[0].name).to.eq("withdrawnAndForfeitedRewards");
-    expect(events[0].data.user).to.deep.eq(user3.user.publicKey);
-    expect(events[0].data.tokenAmount.toNumber()).to.eq(
-      USER3_STAKE_AMOUNT * 2 * LAMPORTS_PER_SOL
-    );
-    expect(events[0].data.forfeitedRewardAmount.toNumber()).to.eq(
-      forfeited_reward_amount
-    );
-
-    // Verify user info is cleared
-    const userInfo = await program.account.userInfo.fetch(user3InfoPDA);
-    expect(userInfo.stakeAmount.toNumber()).to.equal(0);
-    expect(userInfo.stakedAt).to.equal(0);
-    expect(userInfo.capturedReward.toNumber()).to.equal(0);
-    expect(userInfo.withdrawalRequestTime).to.equal(0);
-    expect(userInfo.withdrawalRequestAmount.toNumber()).to.equal(0);
-    expect(userInfo.withdrawalRequestRewardAmount.toNumber()).to.equal(0);
-
-    // Verify stats updated (total staked should remain the same since user still has staked amount)
-    const statsPDA = getStatsPDA(program.programId);
-    const stats = await program.account.stats.fetch(statsPDA);
-    expect(stats.totalStaked.toNumber()).to.equal(
-      USER2_STAKE_AMOUNT * LAMPORTS_PER_SOL
-    );
-
-    // Check token balances - user should have received their withdrawal request tokens
-    // Verify no reward tokens were transferred to user3 (they were forfeited)
-    // Since we're using single token design, user3 should only have received the staked tokens
-    // The rewards were forfeited and remain in the protocol
-    const user3TokenAccountInfo = await getAccount(
-      provider.connection,
-      user3.ata
-    );
-    expect(Number(user3TokenAccountInfo.amount)).to.equal(
-      USER3_STAKE_AMOUNT * 2 * LAMPORTS_PER_SOL // Got back the tokens from withdrawal request
-    );
+  it("  User3 cannot forfeit rewards, as the pool is solvent", async () => {
+    try {
+      await program.methods
+        .withdrawAndForfeitRewards()
+        .accounts({
+          user: user3.user.publicKey,
+        })
+        .signers([user3.user])
+        .rpc();
+      expect.fail("User3 should not be able to forfeit rewards");
+    } catch (err) {
+      if ("error" in err && "errorCode" in err.error) {
+        expect(err.error.errorCode.code).to.eq("SufficientRewards");
+        return;
+      } else {
+        throw err;
+      }
+    }
   });
 });

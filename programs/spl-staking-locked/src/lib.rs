@@ -377,6 +377,7 @@ pub mod spl_staking_locked {
         let user_info = &mut ctx.accounts.user_info;
         let user_token_account = &ctx.accounts.user_token_account;
         let user_info_token_account = &ctx.accounts.user_info_token_account;
+        let protocol_token_account = &ctx.accounts.protocol_token_account;
         let token_program = &ctx.accounts.token_program;
 
         require!(
@@ -388,6 +389,12 @@ pub mod spl_staking_locked {
             Clock::get()?.unix_timestamp as u32
                 >= user_info.withdrawal_request_time + settings.withdrawal_delay_seconds,
             StakingError::WithdrawalDelayNotMet
+        );
+
+        // If protocol is solvent, revert and instruct user to use normal withdraw
+        require!(
+            protocol_token_account.amount < user_info.withdrawal_request_reward_amount,
+            StakingError::SufficientRewards
         );
 
         let token_amount = user_info.withdrawal_request_amount;
@@ -914,6 +921,13 @@ pub struct WithdrawAndForfeitRewardsAccounts<'info> {
     )]
     pub user_info_token_account: Account<'info, TokenAccount>,
 
+    #[account(
+        mut,
+        associated_token::mint = settings.token_mint,
+        associated_token::authority = settings,
+    )]
+    pub protocol_token_account: Account<'info, TokenAccount>,
+
     pub token_program: Program<'info, Token>,
 }
 
@@ -986,6 +1000,8 @@ pub enum StakingError {
     WithdrawalDelayNotMet,
     #[msg("Insufficient rewards in pool")]
     InsufficientRewards,
+    #[msg("Pool has enogh rewards")]
+    SufficientRewards,
     #[msg("Math overflow occurred")]
     MathOverflow,
     #[msg("Unauthorized ownership transfer")]
