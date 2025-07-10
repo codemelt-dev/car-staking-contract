@@ -18,6 +18,11 @@ pub mod spl_staking_locked {
         withdrawal_delay_days: u64,
         reward_rate_yearly_percentage_numerator: u64, // e.g., 80_000_000_000 for 8%
     ) -> Result<()> {
+        require!(
+            withdrawal_delay_days <= MAX_WITHDRAWAL_DELAY_DAYS,
+            StakingError::InvalidAmount
+        );
+
         let administrator = &ctx.accounts.administrator;
         let settings = &mut ctx.accounts.settings;
         let stats = &mut ctx.accounts.stats;
@@ -126,7 +131,10 @@ pub mod spl_staking_locked {
         let administrator = &ctx.accounts.administrator;
         let settings = &mut ctx.accounts.settings;
 
-        require!(new_withdrawal_delay_days <= 31, StakingError::InvalidAmount);
+        require!(
+            new_withdrawal_delay_days <= MAX_WITHDRAWAL_DELAY_DAYS,
+            StakingError::InvalidAmount
+        );
 
         settings.withdrawal_delay_seconds = (new_withdrawal_delay_days * SECONDS_PER_DAY) as u32;
 
@@ -507,6 +515,7 @@ pub mod spl_staking_locked {
 const PRECISION: u64 = 1_000_000_000_000; // 1e12 scaling factor
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 const SECONDS_PER_YEAR: u64 = 365 * SECONDS_PER_DAY; // 31,536,000 seconds
+const MAX_WITHDRAWAL_DELAY_DAYS: u64 = 31;
 
 fn update_accumulators(settings: &Settings, stats: &mut Stats) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp as u32;

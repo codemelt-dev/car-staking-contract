@@ -109,6 +109,27 @@ describe("spl-staking-locked", () => {
     );
   });
 
+  it("Cannot initialize pool with the withdrawal delay greater than 31 days", async () => {
+    try {
+      await program.methods
+        .initialize(new anchor.BN(32), new anchor.BN(REWARD_RATE_0))
+        .accounts({
+          administrator: admin.user.publicKey,
+          tokenMint: tokenMint,
+        })
+        .signers([admin.user])
+        .rpc();
+      expect.fail("Initialization should not be allowed with >31 days delay");
+    } catch (err) {
+      if ("error" in err && "errorCode" in err.error) {
+        expect(err.error.errorCode.code).to.eq("InvalidAmount");
+        return;
+      } else {
+        throw err;
+      }
+    }
+  });
+
   it("Initialize pool", async () => {
     const tx = await program.methods
       .initialize(
