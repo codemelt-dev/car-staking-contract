@@ -1,0 +1,25 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+spl_staking_locked = "E4ix78FMZ2HPjKvAyvRXJ4v5ipqZYkVUuswjuHkX7Q3v"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "./keys.json"
+
+[scripts]
+#test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 -b"
+initialize = "yarn run ts-node migrations/initialize.ts"
+add-rewards = "yarn run ts-node migrations/add_rewards.ts"
+stake = "yarn run ts-node migrations/stake.ts"
+status = "env NODE_OPTIONS='--no-deprecation' yarn run ts-node migrations/status.ts"
+configure-withdrawal-delay = "yarn run ts-node migrations/configure_withdrawal_delay.ts"
