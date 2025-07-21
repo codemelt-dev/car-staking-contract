@@ -2,8 +2,19 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use solana_security_txt::security_txt;
 
 declare_id!("E4ix78FMZ2HPjKvAyvRXJ4v5ipqZYkVUuswjuHkX7Q3v");
+
+security_txt! {
+    name: "CAR staking contract",
+    project_url: "https://carmemecoin.com/",
+    contacts: "link:https://x.com/CARMemecoinNews",
+    policy: "https://github.com/codemelt-dev/car-staking-contract/blob/main/SECURITY.md",
+    source_code: "https://github.com/codemelt-dev/car-staking-contract",
+    source_release: "v1.0.0",
+    auditors: "https://www.quillaudits.com/leaderboard/car-memecoin,https://github.com/Quillhash/QuillAudit_Reports/blob/master/Car%20Memecoin%20Smart%20Contracts%20Audit%20Report%20-%20QuillAudit.pdf"
+}
 
 #[program]
 pub mod spl_staking_locked {
