@@ -127,6 +127,35 @@ async function main() {
   }
 
   try {
+    // Fetch Protocol Token Account balance
+    console.log("\n🏦 PROTOCOL TOKEN ACCOUNT");
+    console.log("-".repeat(30));
+
+    const settingsKeypair = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("settings")],
+      program.programId
+    );
+    const protocolTokenAccount = await anchor.utils.token.associatedAddress({
+      mint: mintInfo.address,
+      owner: settingsKeypair[0],
+    });
+
+    console.log(
+      `📍 Protocol Token Account: ${protocolTokenAccount.toString()}`
+    );
+
+    const accountInfo = await provider.connection.getTokenAccountBalance(
+      protocolTokenAccount
+    );
+    const balance = Number(accountInfo.value.amount) / decimalMultiplier;
+
+    console.log(`💰 Token Balance: ${balance.toLocaleString()} tokens`);
+  } catch (error) {
+    console.error("❌ Failed to fetch Protocol Token Account balance!");
+    console.error(`   Error: ${error.message}`);
+  }
+
+  try {
     // Try to get protocol health view functions
     console.log("\n🔬 PROTOCOL HEALTH");
     console.log("-".repeat(30));
@@ -155,9 +184,7 @@ async function main() {
     }
 
     try {
-      const rewardRunway = await program.methods
-        .viewRewardRunway()
-        .view();
+      const rewardRunway = await program.methods.viewRewardRunway().view();
 
       const runwayBN = new anchor.BN(rewardRunway.toString());
       if (runwayBN.eq(new anchor.BN("18446744073709551615"))) {
